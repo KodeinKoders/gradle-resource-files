@@ -1,0 +1,8 @@
+= Gradle Plugin to distribute resource files
+
+This is a small Gradle plugin to version & distribute resource files.
+
+Usage example:
+
+- Publishing: https://github.com/KodeinKoders/Kodein-Themes
+- Consuming: https://github.com/KodeinKoders/presentations/tree/master/2021-10-21_DroidCon-Berlin_DI
