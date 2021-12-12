@@ -1,8 +1,71 @@
 = Gradle Plugin to distribute resource files
+:version: 1.0.0
 
-This is a small Gradle plugin to version & distribute resource files.
+This is a small Gradle plugin to version & distribute resource files in a Maven repository.
 
-Usage example:
 
-- Publishing: https://github.com/KodeinKoders/Kodein-Themes
-- Consuming: https://github.com/KodeinKoders/presentations/tree/master/2021-10-21_DroidCon-Berlin_DI
+== Usage
+
+=== Publishing
+
+First, apply the plugin, along with the `maven-publish` Gradle plugin.
+
+[source,kotlin,subs="attributes"]
+----
+plugins {
+    id("net.kodein.gradle.resources.resource-files") version "{version}"
+    `maven-publish`
+}
+----
+
+...then put files in the `files` directory of your project.
+
+You may then (optionally) configure the input directories:
+
+[source,kotlin]
+----
+resourceFiles {
+    inputDirectories += file("$projectDir/src/main/resources")
+}
+----
+
+
+=== Consuming
+
+==== Dependencies
+
+First, apply the plugin.
+
+[source,kotlin,subs="attributes"]
+----
+plugins {
+    id("net.kodein.gradle.resources.resource-files") version "{version}"
+}
+----
+
+Then, you can simply declare resource archive dependencies:
+
+[source,kotlin]
+----
+dependencies {
+    resourceFiles("net.kodein.themes:illustrations:1.1.0")
+}
+----
+
+Resources will be unpacked in `"$buildDir/resources"`, which can be configured:
+
+[source,kotlin]
+----
+resourceFiles {
+    outputDirectory = file("$buildDir/resources")
+}
+----
+
+Note that you can easily filter which resources you want copied in your resources output directory:
+
+[source,kotlin]
+----
+tasks.importResourceFiles {
+    include { it.file.name.endsWith("_1920.webp") }
+}
+----

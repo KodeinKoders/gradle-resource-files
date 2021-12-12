@@ -9,10 +9,9 @@ import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.tasks.Copy
 import org.gradle.api.tasks.Delete
 import org.gradle.api.tasks.bundling.Zip
-import org.gradle.kotlin.dsl.create
-import org.gradle.kotlin.dsl.findByType
-import org.gradle.kotlin.dsl.getByName
+import org.gradle.kotlin.dsl.*
 import org.gradle.language.jvm.tasks.ProcessResources
+import java.io.File
 import javax.inject.Inject
 
 
@@ -24,7 +23,6 @@ class ResourceFilesPlugin @Inject constructor(
         private val resourceFilesAttribute = Attribute.of("net.kodein.gradle.resources.resourceFiles", String::class.java)
         private val resourceFilesAttributeValue = "archive"
 
-        const val filesDirectoryName = "files"
         const val extensionName = "resourceFiles"
         const val importedResourceFilesConfName = "resourceFiles"
         const val exportedResourceFilesConfName = "exportedResourceFiles"
@@ -35,11 +33,12 @@ class ResourceFilesPlugin @Inject constructor(
     }
 
     class Extension(private val project: Project) {
-        var outputDir = project.file("${project.buildDir}/resources")
+        var inputDirs: List<File> = listOf(project.file("${project.projectDir}/files"))
+        var outputDir: File = project.file("${project.buildDir}/resources")
 
         @Suppress("UnstableApiUsage")
         fun addToProcessResources(taskName: String) {
-            project.tasks.getByName<ProcessResources>(taskName) {
+            project.tasks.named<ProcessResources>(taskName) {
                 dependsOn("importResourceFiles")
                 from(outputDir)
             }
@@ -47,29 +46,31 @@ class ResourceFilesPlugin @Inject constructor(
     }
 
     override fun apply(project: Project) {
+        project.plugins.apply("base")
+
         val ext = Extension(project)
         project.extensions.add(extensionName, ext)
 
         project.dependencies.attributesSchema { attribute(resourceFilesAttribute) }
 
-        val importedResourceFilesConf = project.configurations.create(importedResourceFilesConfName) {
+        val importedResourceFilesConf = project.configurations.register(importedResourceFilesConfName) {
             attributes.attribute(resourceFilesAttribute, resourceFilesAttributeValue)
             isCanBeResolved = true
             isCanBeConsumed = false
         }
 
-        if (project.file(filesDirectoryName).isDirectory) {
+        if (ext.inputDirs.any { it.isDirectory }) {
             val exportedResourceFilesConf = project.configurations.create(exportedResourceFilesConfName) {
                 attributes.attribute(resourceFilesAttribute, resourceFilesAttributeValue)
-                extendsFrom(importedResourceFilesConf)
+                extendsFrom(importedResourceFilesConf.get())
                 isCanBeConsumed = true
                 isCanBeResolved = false
             }
-            project.configurations.maybeCreate("default").extendsFrom(exportedResourceFilesConf)
+            project.configurations.named("default").configure { extendsFrom(exportedResourceFilesConf) }
 
-            val archiveResourceFilesTask = project.tasks.create<Zip>(archiveResourceFilesTaskName) {
+            val archiveResourceFilesTask = project.tasks.register<Zip>(archiveResourceFilesTaskName) {
                 group = "build"
-                from(project.file(filesDirectoryName))
+                from(*ext.inputDirs.toTypedArray())
                 archiveFileName.set("${project.name}.zip")
                 destinationDirectory.set(project.file("${project.buildDir}/archives"))
             }
@@ -82,41 +83,34 @@ class ResourceFilesPlugin @Inject constructor(
                 mapToMavenScope("compile")
             }
 
-            project.tasks.create<Delete>("cleanArchive") {
-                group = "build"
+            project.tasks.named<Delete>("clean").configure {
                 delete(project.file("${project.buildDir}/archives"))
             }
 
             project.afterEvaluate {
-                tasks.maybeCreate("clean").dependsOn("cleanArchive")
-
-                project.extensions.findByType<PublishingExtension>()?.publications?.create<MavenPublication>(componentName) {
+                project.extensions.findByType<PublishingExtension>()?.publications?.register<MavenPublication>(componentName) {
                     from(component)
                 }
             }
 
         } else {
-            project.afterEvaluate {
-                val importResourceFilesTask = project.tasks.create<Copy>(importResourceFilesTaskName) {
-                    group = "resources"
-                    into(ext.outputDir)
+            val importResourceFilesTask = project.tasks.register<Copy>(importResourceFilesTaskName) {
+                group = "resources"
+                into(ext.outputDir)
+            }
+            val resolveResourceFilesTask = project.tasks.register(resolveResourceFilesTaskName) {
+                dependsOn(importedResourceFilesConf)
+                doLast {
+                    importedResourceFilesConf.get().resolve()
+                        .forEach {
+                            importResourceFilesTask.configure { from(project.zipTree(it)) }
+                        }
                 }
-                val resolveResourceFilesTask = project.tasks.create(resolveResourceFilesTaskName) {
-                    dependsOn(importedResourceFilesConf)
-                    doLast {
-                        importedResourceFilesConf.resolve()
-                            .forEach {
-                                importResourceFilesTask.from(project.zipTree(it))
-                            }
-                    }
-                }
-                importResourceFilesTask.dependsOn(resolveResourceFilesTask)
+            }
+            importResourceFilesTask.configure { dependsOn(resolveResourceFilesTask) }
 
-                project.tasks.create<Delete>("cleanResouces") {
-                    group = "build"
-                    delete(project.file(ext.outputDir))
-                }
-                tasks.maybeCreate("clean").dependsOn("cleanResouces")
+            project.tasks.named<Delete>("clean").configure {
+                delete(project.file(ext.outputDir))
             }
         }
     }
